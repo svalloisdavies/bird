@@ -1,7 +1,9 @@
-use bracket_lib::prelude::*;
+use bracket_lib::{prelude::*, random};
 const SCREEN_WIDTH : i32 = 80;
 const SCREEN_HEIGHT : i32 = 50;
 const FRAME_DURATION: f32 = 75.0;
+
+const SCREEN_POS:i32 = 3;
 
 enum GameMode {
     Menu,
@@ -20,7 +22,7 @@ impl Player {
         Player { x, y, velocity:0.0, }
     }
     fn render(&mut self, ctx: &mut BTerm) {
-        ctx.set(0, self.y, YELLOW, BLACK, to_cp437('@'));
+        ctx.set(SCREEN_POS, self.y, YELLOW, BLACK, to_cp437('@'));
     }
 
     fn update_pos(&mut self) {
@@ -37,19 +39,50 @@ impl Player {
         self.velocity = - 2.0;
     }
 }
+
+struct Obstacle {
+    x: i32,
+    gap_y: i32,
+    size: i32,
+}
+
+impl Obstacle {
+    fn new(x:i32, score: i32) -> Self {
+        let mut random = RandomNumberGenerator::new();
+        Obstacle { x, gap_y: random.range(10,40), size: i32::max(2,20-score) }
+
+    }
+
+    fn render(&mut self, ctx: &mut BTerm, player_x:i32) {
+        let screen_x = self.x - player_x;
+        let half_size = self.size /2 ; 
+        for obs_range in [0..self.gap_y - half_size, self.gap_y + half_size..SCREEN_HEIGHT ] {
+            for y in obs_range {
+                ctx.set(screen_x, y, RED, BLACK,to_cp437('|'));
+            }
+        }
+    }
+
+    fn hit(&self, player: &Player) -> bool {
+        false
+    }
+}
 struct State{
     mode: GameMode,
     player: Player,
     frame_time: f32,
+    obstacle: Obstacle,
+    score:i32,
 }
 
 impl State {
     fn new() -> Self {
         State {
-            mode: GameMode::Menu,
             player: Player::new(5,25),
             frame_time: 0.0,
-
+            obstacle: Obstacle::new(SCREEN_WIDTH, 0),
+            mode: GameMode::Menu,
+            score: 0,
         }
     }
 
@@ -64,7 +97,16 @@ impl State {
             self.player.flap();
         }
         self.player.render(ctx);
-        ctx.print(0,0, "press space to flap.");
+        let msg = format!("press space to flap [x:{}]", self.player.x);
+        ctx.print(0,0, msg);
+        ctx.print(0,1, &format!("Score: {}", self.score));
+        self.obstacle.render(ctx, self.player.x);
+        if self.player.x > self.obstacle.x {
+            // player made it past the obstacle:
+            self.score += 1;
+            self.obstacle = Obstacle::new(self.player.x + SCREEN_WIDTH, self.score);
+            self.obstacle = Obstacle::new(self.player.x + SCREEN_WIDTH, self.score);
+        }
         if self.player.y > SCREEN_HEIGHT {
             self.mode = GameMode::End;
         }
@@ -87,6 +129,7 @@ impl State {
     fn dead(&mut self, ctx: &mut BTerm) {
         ctx.cls();
         ctx.print_centered(5, "You died!");
+        ctx.print_centered(6, &format!("Your score was  {}", self.score));
         ctx.print_centered(8, "(P)lay Again");
         ctx.print_centered(9, "(Q)uit Game");
         if let Some(key) = ctx.key{
@@ -102,6 +145,8 @@ impl State {
         self.mode = GameMode::Playing;
         self.player = Player::new(5,25);
         self.frame_time = 0.0;
+        self.obstacle = Obstacle::new(SCREEN_WIDTH, 0);
+        self.score = 0;
     }
 }
 
@@ -118,7 +163,9 @@ impl GameState for State {
 
 fn main() -> BError{
     let context = BTermBuilder::simple80x50()
+        .with_fancy_console(SCREEN_WIDTH, SCREEN_HEIGHT, "terminal8x8.png")
         .with_title("flappy dragon")
+        .with_vsync(false)
         .build()?;
     main_loop(context , State::new())
 
